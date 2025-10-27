@@ -5,6 +5,10 @@ use std::{
 
 use base64::{prelude::BASE64_STANDARD, Engine};
 use openssl::sign::Signer;
+use openssl::hash::MessageDigest;
+use openssl::pkey::PKey;
+use openssl::rsa::Padding;
+use openssl::sign::RsaPssSaltlen;
 use reqwest::Method;
 
 use crate::TradingEnvironment;
@@ -40,7 +44,7 @@ pub const fn build_ws_url(trading_env: TradingEnvironment) -> &'static str {
 
 pub(super) fn api_key_headers(
     key_id: impl AsRef<str>,
-    signer: &mut Signer,
+    p_key: &PKey<openssl::pkey::Private>,
     path: impl AsRef<str>,
     method: Method,
 ) -> Result<Vec<(&'static str, String)>, Box<dyn Error>> {
@@ -49,6 +53,12 @@ pub(super) fn api_key_headers(
     let method = method.as_str();
     let path = path.as_ref();
     let msg_string = format!("{ts}{method}{path}");
+
+    // Create a fresh Signer for each request to ensure proper state
+    let mut signer = Signer::new(MessageDigest::sha256(), p_key)?;
+    signer.set_rsa_padding(Padding::PKCS1_PSS)?;
+    signer.set_rsa_pss_saltlen(RsaPssSaltlen::DIGEST_LENGTH)?;
+
     // Raw bytes of signature
     let sig_raw = signer.sign_oneshot_to_vec(msg_string.as_bytes())?;
     // base64 encoded sig string

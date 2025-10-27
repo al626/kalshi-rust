@@ -110,9 +110,9 @@ impl<'a> Kalshi {
                 })?;
                 headers.insert(header_name, header_value);
             }
-            KalshiAuth::ApiKey { key_id, signer, .. } => {
+            KalshiAuth::ApiKey { key_id, p_key, .. } => {
                 let api_key_headers =
-                    api_key_headers(key_id, signer, path, method).map_err(|e| {
+                    api_key_headers(key_id, p_key, path, method).map_err(|e| {
                         KalshiError::InternalError(format!(
                             "API key header generation failed: {}",
                             e
