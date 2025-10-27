@@ -24,7 +24,7 @@ use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
 };
 
-use crate::{Kalshi, KalshiAuth};
+use crate::{Kalshi, KalshiAuth, KalshiError};
 
 use super::{
     commands::{
@@ -64,7 +64,7 @@ pub struct KalshiWebsocketClient {
 }
 
 impl Kalshi {
-    pub async fn connect_ws(&mut self) -> Result<KalshiWebsocketClient, Box<dyn Error>> {
+    pub async fn connect_ws(&mut self) -> Result<KalshiWebsocketClient, KalshiError> {
         KalshiWebsocketClient::connect(self).await
     }
 
@@ -74,33 +74,51 @@ impl Kalshi {
 }
 
 impl<'a> KalshiWebsocketClient {
-    pub async fn connect(kalshi: &mut Kalshi) -> Result<Self, Box<dyn Error>> {
-        let mut req = Uri::from_str(kalshi.get_ws_url())?.into_client_request()?;
+    pub async fn connect(kalshi: &mut Kalshi) -> Result<Self, KalshiError> {
+        let mut req = Uri::from_str(kalshi.get_ws_url())
+            // Note the user will probs just use a default WS url, so maybe this should be a
+            // KalshiError::InternalError
+            .map_err(|e| KalshiError::UserInputError(format!("Invalid WebSocket URL: {}", e)))?
+            .into_client_request()
+            .map_err(|e| {
+                KalshiError::InternalError(format!("Failed to create WebSocket request: {}", e))
+            })?;
         let ws_api_path = kalshi.extract_url_path(kalshi.get_ws_url());
         let auth_headers = kalshi
             .generate_auth_headers(&ws_api_path, Method::GET)
-            .map_err(|e| format!("Auth header generation failed: {}", e))?;
+            .map_err(|e| {
+                KalshiError::InternalError(format!("Auth header generation failed: {}", e))
+            })?;
         let headers = req.headers_mut();
         for (key, val) in &auth_headers {
             let ws_header_name = tokio_tungstenite::tungstenite::http::HeaderName::from_bytes(
                 key.as_str().as_bytes(),
-            )?;
+            )
+            .map_err(|e| KalshiError::InternalError(format!("Invalid header name: {}", e)))?;
             let ws_header_value =
-                tokio_tungstenite::tungstenite::http::HeaderValue::from_str(val.to_str()?)?;
+                tokio_tungstenite::tungstenite::http::HeaderValue::from_str(val.to_str().map_err(
+                    |e| KalshiError::InternalError(format!("Invalid header value: {}", e)),
+                )?)
+                .map_err(|e| KalshiError::InternalError(format!("Invalid header value: {}", e)))?;
             headers.insert(ws_header_name, ws_header_value);
         }
         let req_clone = req.clone();
-        let (ws_stream, res) = connect_async(req).await.inspect_err(|e| match e {
-            tokio_tungstenite::tungstenite::Error::Http(res) => {
-                if let Some(body) = res.body() {
-                    if let Ok(error_body) = String::from_utf8(body.to_vec()) {
-                        eprintln!("Request was {:?}", req_clone);
-                        eprintln!("Kalshi error response was {}", error_body);
+        let (ws_stream, res) = connect_async(req)
+            .await
+            .inspect_err(|e| match e {
+                tokio_tungstenite::tungstenite::Error::Http(res) => {
+                    if let Some(body) = res.body() {
+                        if let Ok(error_body) = String::from_utf8(body.to_vec()) {
+                            eprintln!("Request was {:?}", req_clone);
+                            eprintln!("Kalshi error response was {}", error_body);
+                        }
                     }
                 }
-            }
-            _ => {}
-        })?;
+                _ => {}
+            })
+            .map_err(|e| {
+                KalshiError::InternalError(format!("WebSocket connection failed: {}", e))
+            })?;
 
         let (to_kalshi_tx, to_kalshi_rx) = unbounded_channel::<KalshiCommand>();
         let (from_kalshi_tx, from_kalshi_rx) =
@@ -129,10 +147,15 @@ impl<'a> KalshiWebsocketClient {
         &mut self,
         channels: Vec<KalshiChannel>,
         market_tickers: Vec<String>,
-    ) -> Result<u32, Box<dyn Error>> {
+    ) -> Result<u32, KalshiWebsocketError> {
         let cmd_id = self.next_cmd_id;
         if channels.contains(&KalshiChannel::OrderbookDelta) && market_tickers.len() == 0 {
-            return Err("Cannot subscribe to orderbook deltas for all market tickers, provide at least one market ticker".to_string().into());
+            return Err(KalshiWebsocketError::WebSocketError(
+                ("Cannot subscribe to orderbook deltas for all market tickers, provide at
+                 least one market ticker"
+                    .to_string()
+                    .into()),
+            ));
         }
         let msg = KalshiCommand::Subscribe {
             id: cmd_id,
@@ -141,7 +164,9 @@ impl<'a> KalshiWebsocketClient {
                 market_tickers,
             },
         };
-        self.to_kalshi.send(msg)?;
+        self.to_kalshi.send(msg).map_err(|e| {
+            KalshiWebsocketError::WebSocketError(format!("Error sending message: {}", e))
+        })?;
         self.next_cmd_id += 1;
         Ok(cmd_id)
     }
@@ -257,6 +282,7 @@ async fn kalshi_ws_handler(
             item = stream.select_next_some() => {
                 match item {
                     Ok(msg) => {
+                        // eprintln!("Received raw WS message: {:?}", msg);
                         match msg {
                             Message::Text(text) => {
                                 match serde_json::from_str::<KalshiWebsocketResponse>(&text) {
