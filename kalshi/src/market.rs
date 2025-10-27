@@ -1,7 +1,6 @@
 use super::Kalshi;
 use crate::kalshi_error::*;
 use futures::stream::Stream;
-use log;
 use reqwest::Method;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -164,7 +163,7 @@ impl Kalshi {
     /// ).await.unwrap();
     /// ```
     pub async fn get_multiple_markets(
-        &mut self,
+        &self,
         limit: Option<i64>,
         event_ticker: Option<String>,
         series_ticker: Option<String>,

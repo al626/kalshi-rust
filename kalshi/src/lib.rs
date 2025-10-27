@@ -145,8 +145,6 @@ pub use websockets::*;
 // imports
 use reqwest;
 
-use crate::websockets::client::KalshiWebsocketError;
-
 /// The Kalshi struct is the core of the kalshi-crate. It acts as the interface
 /// between the user and the market, abstracting away the meat of requests
 /// by encapsulating authentication information and the client itself.

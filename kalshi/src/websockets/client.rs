@@ -64,7 +64,7 @@ pub struct KalshiWebsocketClient {
 }
 
 impl Kalshi {
-    pub async fn connect_ws(&mut self) -> Result<KalshiWebsocketClient, KalshiError> {
+    pub async fn connect_ws(&self) -> Result<KalshiWebsocketClient, KalshiError> {
         KalshiWebsocketClient::connect(self).await
     }
 
@@ -74,7 +74,7 @@ impl Kalshi {
 }
 
 impl<'a> KalshiWebsocketClient {
-    pub async fn connect(kalshi: &mut Kalshi) -> Result<Self, KalshiError> {
+    pub async fn connect(kalshi: &Kalshi) -> Result<Self, KalshiError> {
         let mut req = Uri::from_str(kalshi.get_ws_url())
             // Note the user will probs just use a default WS url, so maybe this should be a
             // KalshiError::InternalError

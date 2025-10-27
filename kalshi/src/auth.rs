@@ -91,13 +91,13 @@ impl<'a> Kalshi {
     /// let headers = kalshi_instance.generate_auth_headers("/trade-api/ws/v2", Method::GET)?;
     /// ```
     pub fn generate_auth_headers(
-        &mut self,
+        &self,
         path: &str,
         method: Method,
     ) -> Result<HeaderMap, KalshiError> {
         let mut headers = HeaderMap::new();
 
-        match &mut self.auth {
+        match &self.auth {
             KalshiAuth::EmailPassword => {
                 let curr_token = self.get_user_token().ok_or_else(|| {
                     KalshiError::UserInputError(
