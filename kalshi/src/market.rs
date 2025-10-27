@@ -23,9 +23,10 @@ fn deserialize_settlement_result<'de, D>(
 where
     D: Deserializer<'de>,
 {
-    let s = empty_string_as_none(deserializer)?;
+    let s: Option<String> = Option::deserialize(deserializer)?;
     match s {
         None => Ok(None),
+        Some(s) if s.is_empty() => Ok(None),
         Some(s) => match s.to_lowercase().as_str() {
             "yes" => Ok(Some(SettlementResult::Yes)),
             "no" => Ok(Some(SettlementResult::No)),
@@ -176,7 +177,6 @@ impl Kalshi {
             let markets_url = format!("{}/markets", self.base_url);
             let mut params: Vec<(&str, String)> = Vec::with_capacity(10);
             let retrieve_all = limit.is_none();
-            let mut total_market_count = 0;
 
             add_param!(params, "limit", limit);
             add_param!(params, "event_ticker", event_ticker);
@@ -221,9 +221,6 @@ impl Kalshi {
                     }
                 };
 
-                let market_count = result.markets.len();
-                total_market_count += market_count;
-
                 for market in result.markets {
                     yield Ok(market);
                 }
@@ -231,8 +228,6 @@ impl Kalshi {
                 if !retrieve_all {
                     break;
                 }
-
-                log::debug!("Fetched {} markets ({} new)", total_market_count, market_count);
 
                 if !update_cursor_param(&mut params, &result.cursor) {
                     break;
@@ -282,7 +277,6 @@ impl Kalshi {
             let events_url = format!("{}/events", self.base_url);
             let mut params: Vec<(&str, String)> = Vec::with_capacity(6);
             let retrieve_all = limit.is_none();
-            let mut total_event_count = 0;
 
             add_param!(params, "limit", limit);
             add_param!(params, "status", status);
@@ -310,9 +304,6 @@ impl Kalshi {
                     }
                 };
 
-                let event_count = result.events.len();
-                total_event_count += event_count;
-
                 for event in result.events {
                     yield Ok(event);
                 }
@@ -320,8 +311,6 @@ impl Kalshi {
                 if !retrieve_all {
                     break;
                 }
-
-                log::debug!("Fetched {} events ({} new)", total_event_count, event_count);
 
                 if !update_cursor_param(&mut params, &result.cursor) {
                     break;
@@ -485,7 +474,6 @@ impl Kalshi {
             let market_history_url = format!("{}/markets/{}/history", self.base_url, ticker);
             let mut params: Vec<(&str, String)> = Vec::with_capacity(5);
             let retrieve_all = limit.is_none();
-            let mut total_history_count = 0;
 
             add_param!(params, "limit", limit);
             add_param!(params, "min_ts", min_ts);
@@ -526,9 +514,6 @@ impl Kalshi {
                     }
                 };
 
-                let history_count = result.history.len();
-                total_history_count += history_count;
-
                 for snapshot in result.history {
                     yield Ok(snapshot);
                 }
@@ -536,8 +521,6 @@ impl Kalshi {
                 if !retrieve_all {
                     break;
                 }
-
-                log::debug!("Fetched {} history ({} new)", total_history_count, history_count);
 
                 if !update_cursor_param(&mut params, &result.cursor) {
                     break;
@@ -583,7 +566,6 @@ impl Kalshi {
             let trades_url = format!("{}/markets/trades", self.base_url);
             let mut params: Vec<(&str, String)> = Vec::with_capacity(7);
             let retrieve_all = limit.is_none();
-            let mut total_trade_count = 0;
 
             add_param!(params, "limit", limit);
             add_param!(params, "min_ts", min_ts);
@@ -611,9 +593,6 @@ impl Kalshi {
                     }
                 };
 
-                let trade_count = result.trades.len();
-                total_trade_count += trade_count;
-
                 for trade in result.trades {
                     yield Ok(trade);
                 }
@@ -621,8 +600,6 @@ impl Kalshi {
                 if !retrieve_all {
                     break;
                 }
-
-                log::debug!("Fetched {} trades ({} new)", total_trade_count, trade_count);
 
                 if !update_cursor_param(&mut params, &result.cursor) {
                     break;
@@ -1038,31 +1015,50 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_sample_markets_response_deserialization() {
-        let json_data = include_str!("../test_data/sample_markets.json");
-
+    #[rstest::rstest]
+    #[case("sample_markets.json", include_str!("../test_data/sample_markets.json"))]
+    #[case("sample_markets2.json", include_str!("../test_data/sample_markets2.json"))]
+    fn test_sample_markets_response_deserialization(
+        #[case] filename: &str,
+        #[case] json_data: &str,
+    ) {
         let result: Result<Vec<Market>, _> = serde_json::from_str(json_data);
 
         match result {
             Ok(markets) => {
-                assert!(!markets.is_empty(), "Markets should not be empty");
-                println!("Successfully deserialized {} markets", markets.len());
+                assert!(
+                    !markets.is_empty(),
+                    "Markets should not be empty in {}",
+                    filename
+                );
+                println!(
+                    "Successfully deserialized {} markets from {}",
+                    markets.len(),
+                    filename
+                );
 
                 // Verify we can access basic properties of the first market
                 let first_market = &markets[0];
                 assert!(
                     !first_market.ticker.is_empty(),
-                    "Ticker should not be empty"
+                    "Ticker should not be empty in {}",
+                    filename
                 );
-                assert!(!first_market.title.is_empty(), "Title should not be empty");
+                assert!(
+                    !first_market.title.is_empty(),
+                    "Title should not be empty in {}",
+                    filename
+                );
             }
             Err(e) => {
                 let error_msg = format!("{}", e);
 
                 display_json_error_context(&error_msg, json_data);
 
-                panic!("Failed to deserialize PublicMarketsResponse: {}", e);
+                panic!(
+                    "Failed to deserialize PublicMarketsResponse from {}: {}",
+                    filename, e
+                );
             }
         }
     }
