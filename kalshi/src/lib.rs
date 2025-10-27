@@ -145,6 +145,8 @@ pub use websockets::*;
 // imports
 use reqwest;
 
+use crate::websockets::client::KalshiWebsocketError;
+
 /// The Kalshi struct is the core of the kalshi-crate. It acts as the interface
 /// between the user and the market, abstracting away the meat of requests
 /// by encapsulating authentication information and the client itself.
@@ -293,6 +295,42 @@ impl Kalshi {
             client: reqwest::Client::new(),
             auth: KalshiAuth::build_api_key(key_id, key),
         };
+    }
+
+    /// Sets a timeout for all HTTP requests made by this client.
+    ///
+    /// This method configures the maximum duration that the client will wait
+    /// for a response from the Kalshi API before timing out. The timeout is
+    /// applied to all subsequent requests made through this client instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - The duration to wait before timing out a request
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(&mut Self)` on success, allowing for method chaining.
+    /// Returns `Err(KalshiError::InternalError)` if the HTTP client fails
+    /// to rebuild with the new timeout configuration.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::time::Duration;
+    /// use kalshi::Kalshi;
+    ///
+    /// let mut kalshi = Kalshi::new_with_key("key_id", "key");
+    /// kalshi.with_timeout(Duration::from_secs(30))?;
+    /// # Ok::<_, kalshi::KalshiError>(())
+    /// ```
+    pub fn with_timeout(&mut self, timeout: std::time::Duration) -> Result<&mut Self, KalshiError> {
+        self.client = reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .map_err(|e| {
+                KalshiError::InternalError(format!("Failed to set timeout to {:?}: {}", timeout, e))
+            })?;
+        Ok(self)
     }
 
     /// Retrieves the current user authentication token, if available.
